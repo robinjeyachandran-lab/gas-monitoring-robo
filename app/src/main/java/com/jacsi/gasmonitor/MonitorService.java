@@ -42,10 +42,11 @@ public class MonitorService extends Service {
     static final long POLL_MS = 5000;              // check every 5 seconds
     static final long COOLDOWN_MS = 5 * 60 * 1000; // repeat alert at most every 5 min while still high
 
-    static final long CALL_WAIT_MS = 12000;   // wait after dialing before speaking
-    static final long CALL_END_MS = 60000;    // hang up this long after dialing
+    static final long CALL_WAIT_MS = 6000;   // wait after dialing before speaking
+    static final long CALL_END_MS = 75000;    // hang up this long after dialing
 
-    private TextToSpeech tts;
+    private volatile TextToSpeech tts;
+    private volatile boolean ttsReady = false;
 
     private static final String CH_MONITOR = "gas_monitor";
     private static final String CH_ALERT = "gas_alert";
@@ -211,34 +212,48 @@ public class MonitorService extends Service {
     }
 
     private void speakDuringCall(final int gas) {
+        final String msg = "Warning. Gas leakage detected. Gas level is " + gas
+                + " percent. Please take immediate action.";
+        ttsReady = false;
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            tts = new TextToSpeech(getApplicationContext(), status -> {
+                if (status != TextToSpeech.SUCCESS) {
+                    prefs.edit().putString("last_status",
+                            "Voice engine failed - install Google Text-to-speech").apply();
+                    return;
+                }
+                int r = tts.setLanguage(Locale.US);
+                if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts.setLanguage(Locale.getDefault());
+                }
+                tts.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+                tts.setSpeechRate(0.9f);
+                ttsReady = true;
+            });
+        });
+
         new Thread(() -> {
             try {
+                long start = System.currentTimeMillis();
                 Thread.sleep(CALL_WAIT_MS);
                 final AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-                am.setSpeakerphoneOn(true);
-                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL,
-                        am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0);
-                am.setStreamVolume(AudioManager.STREAM_MUSIC,
-                        am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0);
-
-                final String msg = "Warning. Gas leakage detected. Gas level is " + gas
-                        + " percent. Please take immediate action.";
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
-                    tts = new TextToSpeech(getApplicationContext(), status -> {
-                        if (status == TextToSpeech.SUCCESS) {
-                            tts.setLanguage(Locale.US);
-                            tts.setAudioAttributes(new AudioAttributes.Builder()
-                                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
-                            for (int i = 0; i < 3; i++) {
-                                tts.speak(msg, TextToSpeech.QUEUE_ADD, null, "gas" + i);
-                            }
-                        }
-                    });
-                });
-
-                Thread.sleep(Math.max(CALL_END_MS - CALL_WAIT_MS, 10000));
+                for (int i = 0; i < 6; i++) {
+                    am.setSpeakerphoneOn(true);
+                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL,
+                            am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL), 0);
+                    if (ttsReady && tts != null) {
+                        Bundle params = new Bundle();
+                        params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f);
+                        tts.speak(msg, TextToSpeech.QUEUE_FLUSH, params, "gas" + i);
+                    }
+                    Thread.sleep(9000);
+                }
+                long left = CALL_END_MS - (System.currentTimeMillis() - start);
+                if (left > 0) Thread.sleep(left);
                 if (tts != null) { tts.stop(); tts.shutdown(); tts = null; }
+                ttsReady = false;
                 if (Build.VERSION.SDK_INT >= 28 && checkSelfPermission(
                         Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
                     ((TelecomManager) getSystemService(TELECOM_SERVICE)).endCall();
