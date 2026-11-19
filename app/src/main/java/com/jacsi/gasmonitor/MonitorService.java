@@ -163,8 +163,7 @@ public class MonitorService extends Service {
         try {
             SmsManager sms = Build.VERSION.SDK_INT >= 31
                     ? getSystemService(SmsManager.class) : SmsManager.getDefault();
-            String text = "GAS ALERT: Gas level is " + gas + "% (above " + THRESHOLD
-                    + "%). - Smart Industrial Safety Robot";
+            String text = "GAS ALERT: Gas level is " + gas + "% . - Smart Industrial Safety Robot";
             ArrayList<String> parts = sms.divideMessage(text);
             sms.sendMultipartTextMessage(phone, null, parts, null, null);
             prefs.edit().putString("last_status", "SMS sent to " + phone).apply();
