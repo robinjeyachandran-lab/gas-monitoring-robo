@@ -26,7 +26,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import android.speech.tts.TextToSpeech;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.List;
 
 public class MainActivity extends Activity {
@@ -186,9 +188,26 @@ public class MainActivity extends Activity {
         Button web = button("View Live Website", "#546E7A");
         web.setOnClickListener(v -> showWeb());
         setCard.addView(web);
+        Button test = button("Test Voice Alert", "#8E24AA");
+        test.setOnClickListener(v -> testVoice());
+        setCard.addView(test);
         root.addView(setCard);
 
         setContentView(scroll);
+    }
+
+    private void testVoice() {
+        final TextToSpeech[] t = new TextToSpeech[1];
+        t[0] = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                t[0].setLanguage(Locale.US);
+                t[0].speak("Warning. Gas leakage detected. This is a test.",
+                        TextToSpeech.QUEUE_FLUSH, null, "test");
+            } else {
+                Toast.makeText(this, "Voice engine not available. Install Google Text-to-speech.",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void showWeb() {
